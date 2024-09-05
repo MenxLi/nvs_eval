@@ -1,5 +1,5 @@
 expname = human_anterior 
-basedir = ./DATA/logs
+basedir = ./DATA/output/human_anterior/nerf
 datadir = ./DATA/dataset/human_anterior/llff
 dataset_type = llff
 

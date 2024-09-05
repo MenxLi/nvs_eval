@@ -1,6 +1,6 @@
 from pathlib import Path
 from threading import Lock, Thread
-import time, json, datetime
+import time, json, datetime, os
 import argparse
 from .utils.system_resource import GPU
 from .utils import check_call
@@ -12,34 +12,50 @@ output_dir = DATA_PATH / "output"
 def get_exp_home(dataset_name: str, model_name: str) -> Path:
     return output_dir / dataset_name / model_name
 
+def get_nerf_params(ds_name: str, factor: int = 8):
+    cond_params = [
+        "--expname", 'exp',
+        "--basedir", str(output_dir/ds_name/"nerf"),
+        "--datadir", str(dataset_dir/ds_name/"llff"),
+    ]
+
+    default_params = [
+        "--dataset_type", "llff",
+        "--llffhold", "11",
+        "--N_rand", "1024",
+        "--N_samples", "64",
+        "--N_importance", "64",
+        "--raw_noise_std", "1e0",
+        "--use_viewdirs",
+    ]
+    return cond_params + default_params + ["--factor", str(factor)]
+
 def run_on_dataset(model_name: str, dataset_path: Path, device: int = 0):
     """
     Run the model on the dataset.
     - device: GPU device to use, CUDA_VISIBLE_DEVICES
     """
-    cmds = [
-        "ns-train", model_name, 
-        "--data", str(dataset_path),
-        "--output-dir", str(output_dir),
-        "--vis", "viewer", 
-        "--viewer.quit-on-train-completion", "True",
-        "--timestamp", "exp"
-    ]
+    ds_name = dataset_path.name
 
-    if model_name == 'instant-ngp':
-        cmds.extend(["--pipeline.model.eval-num-rays-per-chunk", "4096"])
-    if model_name == 'vanilla-nerf':
-        cmds.extend([
-            "--max-num-iterations", "1000000",
-            "--mixed-precision", "False"
-            ])
-    if model_name == 'mipnerf':
-        cmds.extend([
-            "--max-num-iterations", "1000000",
-            "--mixed-precision", "False"
-            ])
-    
-    cmds.extend(["nerfstudio-data"])
+    if model_name == "nerf":
+        # use orignial nerf impl.
+        cmds = [
+            "python", "models/nerf-pytorch/run_nerf_exp.py", 
+        ] + get_nerf_params(ds_name)
+
+    else:
+        # use nerf studio
+        cmds = [
+            "ns-train", model_name, 
+            "--data", str(dataset_path),
+            "--output-dir", str(output_dir),
+            "--vis", "viewer", 
+            "--viewer.quit-on-train-completion", "True",
+            "--timestamp", "exp"
+        ]
+        if model_name == 'instant-ngp':
+            cmds.extend(["--pipeline.model.eval-num-rays-per-chunk", "4096"])
+        cmds.extend(["nerfstudio-data"])
 
 
     exp_home = get_exp_home(dataset_path.name, model_name)
@@ -47,20 +63,37 @@ def run_on_dataset(model_name: str, dataset_path: Path, device: int = 0):
 
 def eval_on(model_name: str, dataset_name: str, device: int = 0):
     exp_home = get_exp_home(dataset_name, model_name)
-    
-    check_call(
-        [
-            "ns-eval", 
-            "--load-config", str(exp_home / "exp" / "config.yml"),
-            "--output-path", str(exp_home / "eval.json"),
-            "--render-output-path", str(exp_home / "render"),
-        ],
-        env={"CUDA_VISIBLE_DEVICES": str(device)},
-        error_log_file=exp_home / "error-eval.txt"
-    )
+
+    if model_name == "nerf":
+        check_call(
+            [ "python", "models/nerf-pytorch/run_nerf_exp.py", ]
+            + get_nerf_params(dataset_name, factor=1) + 
+            [
+                "--render_only", 
+                "--render_test", 
+                "--render_factor", "1"
+            ],
+            env={"CUDA_VISIBLE_DEVICES": str(device)},
+            error_log_file=exp_home / "error-eval.txt"
+        )
+    else:
+        check_call(
+            [
+                "ns-eval", 
+                "--load-config", str(exp_home / "exp" / "config.yml"),
+                "--output-path", str(exp_home / "eval.json"),
+                "--render-output-path", str(exp_home / "render"),
+            ],
+            env={"CUDA_VISIBLE_DEVICES": str(device)},
+            error_log_file=exp_home / "error-eval.txt"
+        )
 
 if __name__ == "__main__":
-    N_GPUS = 2
+    CUDA_VISIBLE_DEVICES = os.getenv("CUDA_VISIBLE_DEVICES", "0")
+    CUDA_VISIBLE_DEVICES = list(map(int, CUDA_VISIBLE_DEVICES.split(",")))
+    N_GPUS = os.getenv("N_GPUS", len(CUDA_VISIBLE_DEVICES))
+
+    usable_gpus = CUDA_VISIBLE_DEVICES[:N_GPUS]
 
     parser = argparse.ArgumentParser(description="Run the model on the dataset")
     parser.add_argument("model_name", help="Name of the model to run")
@@ -103,7 +136,6 @@ if __name__ == "__main__":
             with lock:
 
                 print(f"Running {dataset_path.name} on GPU {device}")
-                error_msg = None
 
                 set_running_flag(True)
                 t_gpu = Thread(target=check_gpu_memory)
@@ -130,6 +162,7 @@ if __name__ == "__main__":
                     eval_on(model_name, ds_name, device)
                 except Exception as e:
                     write_error_msg(str(e.with_traceback(None)))
+                    raise e
 
         
         t = Thread(target=fn, daemon=True)
@@ -142,8 +175,9 @@ if __name__ == "__main__":
             if locks[i].locked():
                 continue
 
+            dev_idx = usable_gpus[i]
             dataset_path = all_datasets.pop()
-            _run_thread(locks[i], dataset_path, i)
+            _run_thread(locks[i], dataset_path, dev_idx)
 
         time.sleep(1)
     

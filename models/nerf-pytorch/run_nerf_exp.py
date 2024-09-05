@@ -1,4 +1,7 @@
-import os
+"""
+@limengxun: My experiment script!
+"""
+import os, json
 import numpy as np
 import imageio
 import time
@@ -16,6 +19,9 @@ from load_deepvoxels import load_dv_data
 from load_blender import load_blender_data
 from load_LINEMOD import load_LINEMOD_data
 
+from torchmetrics.functional import structural_similarity_index_measure
+from torchmetrics.image import PeakSignalNoiseRatio
+
 assert os.path.exists('DATA'), "Please run this script from the root directory of the project."
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,6 +38,23 @@ def batchify(fn, chunk):
         return torch.cat([fn(inputs[i:i+chunk]) for i in range(0, inputs.shape[0], chunk)], 0)
     return ret
 
+def get_eval_metric(gt_im, render_im):
+    # return psnr and ssim
+    assert gt_im.shape == render_im.shape, f"Shape mismatch: {gt_im.shape} vs {render_im.shape}"
+    assert gt_im.shape[-1] == 3
+    assert len(gt_im.shape) == 3
+    
+    gt_torch = torch.Tensor(gt_im).to(device)
+    gt_torch = gt_torch.permute(2, 0, 1).unsqueeze(0)
+    render_torch = torch.Tensor(render_im).to(device)
+    render_torch = render_torch.permute(2, 0, 1).unsqueeze(0)
+    
+    psnr = PeakSignalNoiseRatio(data_range=1.0)(gt_torch, render_torch)
+    ssim = structural_similarity_index_measure(gt_torch, render_torch, data_range=1.0)
+    return {
+        "psnr": psnr.detach().cpu().numpy(),
+        "ssim": ssim.detach().cpu().numpy()
+    }
 
 def run_network(inputs, viewdirs, fn, embed_fn, embeddirs_fn, netchunk=1024*64):
     """Prepares inputs and applies network 'fn'.
@@ -146,11 +169,12 @@ def render_path(render_poses, hwf, K, chunk, render_kwargs, gt_imgs=None, savedi
     rgbs = []
     disps = []
 
-    t = time.time()
+    time_total = 0
     for i, c2w in enumerate(tqdm(render_poses)):
-        print(i, time.time() - t)
         t = time.time()
         rgb, disp, acc, _ = render(H, W, K, chunk=chunk, c2w=c2w[:3,:4], **render_kwargs)
+        time_total += time.time()-t
+
         rgbs.append(rgb.cpu().numpy())
         disps.append(disp.cpu().numpy())
         if i==0:
@@ -170,8 +194,9 @@ def render_path(render_poses, hwf, K, chunk, render_kwargs, gt_imgs=None, savedi
 
     rgbs = np.stack(rgbs, 0)
     disps = np.stack(disps, 0)
+    fps = 1/(time_total/len(render_poses))
 
-    return rgbs, disps
+    return rgbs, disps, fps
 
 
 def create_nerf(args):
@@ -664,7 +689,39 @@ def train():
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', render_poses.shape)
 
-            rgbs, _ = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test, gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
+            rgbs, _, fps = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test, gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
+            
+            # concatenate images along width
+            assert images is not None
+            render_save_dir = os.path.join(basedir, 'render')
+            psnrs = []
+            ssims = []
+            if not os.path.exists(render_save_dir):
+                os.mkdir(render_save_dir)
+            
+            for i, (gt_im, render_im) in enumerate(zip(images, rgbs)):
+                img = np.concatenate([gt_im, render_im], axis=1)
+                fname = os.path.join(render_save_dir, f'eval_img_{i:04d}.png')
+                imageio.imwrite(fname, to8b(img))
+
+            for gt_im, render_im in zip(images, rgbs):
+                metrics = get_eval_metric(gt_im, render_im)
+                psnrs.append(metrics['psnr'])
+                ssims.append(metrics['ssim'])
+            
+            eval_ret = {
+                "expename": expname,
+                "results": {
+                    'psnr': float(np.mean(psnrs)),
+                    'psnr_std': float(np.std(psnrs)),
+                    'ssim': float(np.mean(ssims)),
+                    'ssim_std': float(np.std(ssims)),
+                    'fps': float(fps),
+                }
+            }
+            with open(os.path.join(basedir, "eval.json"), "w", encoding='utf-8') as f:
+                json.dump(eval_ret, f, indent=4)
+            
             print('Done rendering', testsavedir)
             imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(rgbs), fps=30, quality=8)
 
@@ -697,7 +754,8 @@ def train():
         rays_rgb = torch.Tensor(rays_rgb).to(device)
 
 
-    N_iters = 200000 + 1
+    # N_iters = 200000 + 1
+    N_iters = 20000 + 1
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -801,7 +859,7 @@ def train():
         if i%args.i_video==0 and i > 0:
             # Turn on testing mode
             with torch.no_grad():
-                rgbs, disps = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test)
+                rgbs, disps, _ = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test)
             print('Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
