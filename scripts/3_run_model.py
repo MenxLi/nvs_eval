@@ -17,18 +17,32 @@ def get_nerf_params(ds_name: str, factor: int = 8):
         "--expname", 'exp',
         "--basedir", str(output_dir/ds_name/"nerf"),
         "--datadir", str(dataset_dir/ds_name/"llff"),
+        "--factor", str(factor),
+        "--lrate", "5e-4",
     ]
+
+    if (factor < 8):
+        # otherwise OOM...
+        cond_params += ["--no_batching"]
+
+    # if ds_name == "phantom_anterior" or ds_name == "phantom_head" or ds_name == "human_head" or ds_name == 'human_color':
+    #     cond_params += ["--lrate", "5e-3"]
+    # else:
+    #     cond_params += ["--lrate", "5e-4"]
 
     default_params = [
         "--dataset_type", "llff",
-        "--llffhold", "11",
+        "--llffhold", "10",
         "--N_rand", "1024",
         "--N_samples", "64",
         "--N_importance", "64",
         "--raw_noise_std", "1e0",
+        "--i_video", "10000000",         # never do video rendering
         "--use_viewdirs",
+        "--lrate_decay", "200",
     ]
-    return cond_params + default_params + ["--factor", str(factor)]
+
+    return cond_params + default_params
 
 def run_on_dataset(model_name: str, dataset_path: Path, device: int = 0):
     """
@@ -41,7 +55,7 @@ def run_on_dataset(model_name: str, dataset_path: Path, device: int = 0):
         # use orignial nerf impl.
         cmds = [
             "python", "models/nerf-pytorch/run_nerf_exp.py", 
-        ] + get_nerf_params(ds_name)
+        ] + get_nerf_params(ds_name, factor=2)
 
     else:
         # use nerf studio
@@ -134,6 +148,9 @@ if __name__ == "__main__":
                     f.write(msg)
 
             with lock:
+                if (exp_home / "render").exists():
+                    print(f"Skipping {dataset_path.name} on GPU {device}")
+                    return
 
                 print(f"Running {dataset_path.name} on GPU {device}")
 

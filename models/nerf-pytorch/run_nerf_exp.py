@@ -574,7 +574,9 @@ def train():
 
         if args.llffhold > 0:
             print('Auto LLFF holdout,', args.llffhold)
-            i_test = np.arange(images.shape[0])[::args.llffhold]
+            # i_test = np.arange(images.shape[0])[::args.llffhold]
+            # use the last of each llffhold for test
+            i_test = np.arange(images.shape[0])[args.llffhold-1::args.llffhold]
 
         i_val = i_test
         i_train = np.array([i for i in np.arange(int(images.shape[0])) if
@@ -754,8 +756,8 @@ def train():
         rays_rgb = torch.Tensor(rays_rgb).to(device)
 
 
-    # N_iters = 200000 + 1
-    N_iters = 20000 + 1
+    N_iters = 300000 + 1
+    # N_iters = 20000 + 1
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
