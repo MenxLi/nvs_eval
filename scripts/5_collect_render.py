@@ -13,7 +13,7 @@ for ds_dir in output_dir.iterdir():
     if ds_dir.is_dir():
         dataset_names.append(ds_dir.name)
 
-methods = [ 'nerf', 'tensorf', 'instant-ngp', 'splatfacto' ]
+methods = [ 'nerf', 'tensorf', 'instant-ngp', 'splatfacto', '3dgs', '2dgs' ]
 
 def get_image_pair(ds_name: str, method: str, idx: int):
     exp_dir = output_dir / ds_name / method

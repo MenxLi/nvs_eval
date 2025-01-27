@@ -575,7 +575,7 @@ def train():
         if args.llffhold > 0:
             print('Auto LLFF holdout,', args.llffhold)
             # i_test = np.arange(images.shape[0])[::args.llffhold]
-            # use the last of each llffhold for test
+            # @limengxun: use the last of each llffhold for test
             i_test = np.arange(images.shape[0])[args.llffhold-1::args.llffhold]
 
         i_val = i_test

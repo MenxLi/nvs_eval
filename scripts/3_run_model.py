@@ -2,6 +2,7 @@ from pathlib import Path
 from threading import Lock, Thread
 import time, json, datetime, os
 import argparse
+import imageio
 from .utils.system_resource import GPU
 from .utils import check_call
 
@@ -11,6 +12,22 @@ output_dir = DATA_PATH / "output"
 
 def get_exp_home(dataset_name: str, model_name: str) -> Path:
     return output_dir / dataset_name / model_name
+
+def get_downsample_factor(exp_name: str):
+    """
+    Force downsample factor to be the same as splatfacto...
+    Brutal force...
+    """
+    this_image = imageio.imread(Path("DATA") / "dataset" / exp_name / "colmap" / "images" / "frame_00001.jpg")
+    h0 = this_image.shape[0]
+
+    splat_facto_render_dir = Path("DATA") / "output" / exp_name / "splatfacto"
+    sample_image = imageio.imread(splat_facto_render_dir / "render" / "eval_img_0000.png")
+    h1 = sample_image.shape[0]
+    factor = float(h0) / h1
+    rounded_factor = int(round(factor))
+    print("[INFO] Downsample factor:", factor, '->', rounded_factor)
+    return rounded_factor
 
 def get_nerf_params(ds_name: str, factor: int = 8):
     cond_params = [
@@ -56,7 +73,8 @@ def run_on_dataset(model_name: str, dataset_path: Path, device: int = 0):
         # use orignial nerf impl.
         cmds = [
             "python", "models/nerf-pytorch/run_nerf_exp.py", 
-        ] + get_nerf_params(ds_name, factor=2)
+        ] + get_nerf_params(ds_name, factor=get_downsample_factor(ds_name))
+        # ] + get_nerf_params(ds_name, factor=2)
     
     elif model_name == "2dgs":
         cmds = [

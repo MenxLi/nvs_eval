@@ -2,6 +2,7 @@ import json
 import math
 import os, shutil
 from pathlib import Path
+import pycolmap
 import time
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -39,6 +40,24 @@ from gsplat.optimizers import SelectiveAdam
 exp_name = os.environ.get("EXP_NAME", "simple_trainer_3dgs")
 exp_home = Path("DATA") / "output" / exp_name / "3dgs"
 exp_home.mkdir(parents=True, exist_ok=True)
+MAX_STEPS = 30_000
+
+def get_downsample_factor():
+    """
+    Force downsample factor to be the same as splatfacto...
+    Brutal force...
+    """
+    this_image = imageio.imread(Path("DATA") / "dataset" / exp_name / "colmap" / "images" / "frame_00001.jpg")
+    h0 = this_image.shape[0]
+
+    splat_facto_render_dir = Path("DATA") / "output" / exp_name / "splatfacto"
+    sample_image = imageio.imread(splat_facto_render_dir / "render" / "eval_img_0000.png")
+    h1 = sample_image.shape[0]
+    factor = float(h0) / h1
+    rounded_factor = int(round(factor))
+    print("[INFO] Downsample factor:", factor, '->', rounded_factor)
+    return rounded_factor
+
 
 @dataclass
 class Config:
@@ -54,13 +73,13 @@ class Config:
     # Path to the Mip-NeRF 360 dataset
     data_dir: str = os.path.join("DATA", "dataset", exp_name, "colmap")
     # Downsample factor for the dataset
-    data_factor: int = 1
+    data_factor: int = get_downsample_factor()
     # Directory to save results
     result_dir: str = str(exp_home / "exp")
     # # Directory to save results
     # result_dir: str = "results/garden"
     # Every N images there is a test image
-    test_every: int = 11
+    test_every: int = 10
     # Random crop size for training  (experimental)
     patch_size: Optional[int] = None
     # A global scaler that applies to the scene size related parameters
@@ -79,11 +98,11 @@ class Config:
     steps_scaler: float = 1.0
 
     # Number of training steps
-    max_steps: int = 30_000
+    max_steps: int = MAX_STEPS
     # Steps to evaluate the model
-    eval_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
+    eval_steps: List[int] = field(default_factory=lambda: [7_000, MAX_STEPS])
     # Steps to save the model
-    save_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
+    save_steps: List[int] = field(default_factory=lambda: [7_000, MAX_STEPS])
 
     # Initialization strategy
     init_type: str = "sfm"
@@ -157,7 +176,7 @@ class Config:
     depth_lambda: float = 1e-2
 
     # Dump information to tensorboard every this steps
-    tb_every: int = 100
+    tb_every: int = 1000
     # Save training images to tensorboard
     tb_save_image: bool = False
 
@@ -1027,7 +1046,7 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
 
     dst_render_dir = exp_home / "render"
     dst_render_dir.mkdir(exist_ok=True)
-    for i in range(11):
+    for i in range(10):
         render_image_file = result_dir / "renders" / f"val_step{cfg.max_steps - 1}_{i:04d}.png"
         shutil.copy(render_image_file, dst_render_dir / f"eval_img_{i:04d}.png")
 

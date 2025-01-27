@@ -7,3 +7,5 @@ https://github.com/nerfstudio-project/nerfstudio/issues/2895
 
 
 - nerfstudio needs gsplat==1.0.0, included is gsplat==1.4.0...
+
+Resize: MAX_AUTO_RESOLUTION
