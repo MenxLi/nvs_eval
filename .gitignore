@@ -5,6 +5,7 @@ outputs
 __pycache__
 
 models/gsplat/gsplat/cuda/csrc/third_party/glm/doc/*
+dentistry_gs_src.zip
 
 *.egg-info
 build
