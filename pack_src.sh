@@ -2,7 +2,7 @@
 # This script pack source code to the specified destination directory
 
 dest=$1
-dest_path="${dest}/dentistry_gs_src.zip"
+dest_path="${dest}/nvs_eval.zip"
 
 if [ $dest ]; then
         if [ -d $dest ]; then
