@@ -11,7 +11,7 @@ for ds_dir in output_dir.iterdir():
     if ds_dir.is_dir():
         dataset_names.append(ds_dir.name)
 
-methods = [ 'nerf', 'tensorf', 'instant-ngp', 'splatfacto' ]
+methods = [ 'nerf', 'tensorf', 'instant-ngp', 'splatfacto', '3dgs', '2dgs' ]
 
 @dataclasses.dataclass
 class Result:

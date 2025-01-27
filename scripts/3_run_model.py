@@ -50,12 +50,24 @@ def run_on_dataset(model_name: str, dataset_path: Path, device: int = 0):
     - device: GPU device to use, CUDA_VISIBLE_DEVICES
     """
     ds_name = dataset_path.name
+    env = {"CUDA_VISIBLE_DEVICES": str(device)}
 
     if model_name == "nerf":
         # use orignial nerf impl.
         cmds = [
             "python", "models/nerf-pytorch/run_nerf_exp.py", 
         ] + get_nerf_params(ds_name, factor=2)
+    
+    elif model_name == "2dgs":
+        cmds = [
+            "python", "-m", "scripts.train_2dgs",
+        ]
+        env["EXP_NAME"] = ds_name
+    elif model_name == "3dgs":
+        cmds = [
+            "python", "-m", "scripts.train_3dgs", "default"
+        ]
+        env["EXP_NAME"] = ds_name
 
     else:
         # use nerf studio
@@ -71,9 +83,8 @@ def run_on_dataset(model_name: str, dataset_path: Path, device: int = 0):
             cmds.extend(["--pipeline.model.eval-num-rays-per-chunk", "4096"])
         cmds.extend(["nerfstudio-data"])
 
-
     exp_home = get_exp_home(dataset_path.name, model_name)
-    check_call(cmds, env={"CUDA_VISIBLE_DEVICES": str(device)}, error_log_file=exp_home / "error-train.txt")
+    check_call(cmds, env=env, error_log_file=exp_home / "error-train.txt")
 
 def eval_on(model_name: str, dataset_name: str, device: int = 0):
     exp_home = get_exp_home(dataset_name, model_name)
@@ -90,6 +101,8 @@ def eval_on(model_name: str, dataset_name: str, device: int = 0):
             env={"CUDA_VISIBLE_DEVICES": str(device)},
             error_log_file=exp_home / "error-eval.txt"
         )
+    elif model_name == "2dgs" or model_name == "3dgs":
+        pass
     else:
         check_call(
             [
